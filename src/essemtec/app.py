@@ -1,7 +1,7 @@
 from pathlib import Path
+import subprocess
+import sys
 from typing import cast
-import tkinter as tk
-from tkinter import filedialog
 
 import matplotlib.pyplot as plt
 from matplotlib.widgets import Button, RadioButtons, TextBox as MatplotlibTextBox
@@ -28,9 +28,32 @@ class ResizeSafeTextBox(MatplotlibTextBox):
 
 
 def ask_for_csv_file(title: str) -> Path | None:
+    if sys.platform == "darwin":
+        return ask_for_csv_file_macos(title)
+    return ask_for_csv_file_tk(title)
+
+
+def ask_for_csv_file_macos(title: str) -> Path | None:
+    escaped_title = title.replace("\\", "\\\\").replace('"', '\\"')
+    script = f'POSIX path of (choose file with prompt "{escaped_title}")'
+    result = subprocess.run(["osascript", "-e", script], capture_output=True, text=True, check=False)
+
+    if result.returncode != 0:
+        return None
+
+    selected_file = result.stdout.strip()
+    if not selected_file:
+        return None
+    return Path(selected_file)
+
+
+def ask_for_csv_file_tk(title: str) -> Path | None:
+    import tkinter as tk
+    from tkinter import filedialog
+
     root = tk.Tk()
     root.withdraw()
-    root.attributes("-topmost", True)
+    root.update_idletasks()
     try:
         selected_file = filedialog.askopenfilename(title=title, filetypes=CSV_FILE_TYPES)
     finally:
@@ -42,7 +65,7 @@ def ask_for_csv_file(title: str) -> Path | None:
 
 
 class TemperaturePlotApp:
-    def __init__(self, measurement: MeasurementSeries) -> None:
+    def __init__(self, measurement: MeasurementSeries | None = None) -> None:
         self.measurement = measurement
         self.selected_sensor: SensorName = "T1"
         self.dynamic_elements: list[object] = []
@@ -63,6 +86,10 @@ class TemperaturePlotApp:
         self.axis.set_title("PROFIL TEMPERATUROWY", fontsize=12, fontweight="bold")
         self.axis.set_xlabel("Czas (Sekundy)", fontsize=10)
         self.axis.set_ylabel("Temperatura (C)", fontsize=10)
+
+        if self.measurement is None:
+            self.figure.canvas.draw_idle()
+            return
 
         for sensor in SENSOR_NAMES:
             if self.measurement.has_sensor_data(sensor):
@@ -94,7 +121,7 @@ class TemperaturePlotApp:
         self.sensor_radio = RadioButtons(sensor_axis, SENSOR_NAMES, active=0)
 
         button_axis = plt.axes([0.86, 0.20, 0.10, 0.05])
-        self.file_button = Button(button_axis, "Wybierz inny plik", color="lightblue", hovercolor="skyblue")
+        self.file_button = Button(button_axis, self._file_button_label(), color="lightblue", hovercolor="skyblue")
 
         for box in self.threshold_boxes:
             box.on_submit(self.recalculate_ranges)
@@ -112,6 +139,10 @@ class TemperaturePlotApp:
 
     def recalculate_ranges(self, _submitted_text: str | None = None) -> None:
         self._clear_dynamic_elements()
+
+        if self.measurement is None:
+            self.figure.canvas.draw_idle()
+            return
 
         thresholds = parse_threshold_values(box.text for box in self.threshold_boxes)
         if not thresholds:
@@ -166,6 +197,11 @@ class TemperaturePlotApp:
         print(f"Zmieniono czujnik pomiarowy na: {self.selected_sensor}")
         self.recalculate_ranges()
 
+    def _file_button_label(self) -> str:
+        if self.measurement is None:
+            return "Wybierz plik CSV"
+        return "Wybierz inny plik"
+
     def load_new_file(self, _event: object) -> None:
         print("Otwieranie eksploratora dla nowego pliku...")
         selected_file = ask_for_csv_file("Wybierz nowy plik z pomiaru UT325F (CSV)")
@@ -185,32 +221,28 @@ class TemperaturePlotApp:
         self.measurement = measurement
         self._clear_dynamic_elements()
         self._draw_base_plot()
+        self.file_button.label.set_text(self._file_button_label())
         self.recalculate_ranges()
         print("Pomyslnie zaladowano nowy wykres!")
 
 
 def run_app(initial_csv_file: str | Path | None = None) -> int:
-    if initial_csv_file is None:
-        print("Oczekiwanie na wybor pliku przez uzytkownika...")
-        csv_file = ask_for_csv_file("Wybierz plik z pomiaru UT325F (CSV)")
-    else:
+    measurement: MeasurementSeries | None = None
+
+    if initial_csv_file is not None:
         csv_file = Path(initial_csv_file)
+        try:
+            measurement = load_temperature_csv(csv_file)
+        except Exception as exc:
+            print(f"Blad podczas odczytu pliku: {exc}")
+            return 1
 
-    if csv_file is None:
-        print("Anulowano wybor pliku. Zamykanie programu.")
-        return 0
+        if not measurement.has_rows:
+            print("Brak prawidlowych danych. Zamykanie programu.")
+            return 1
 
-    try:
-        measurement = load_temperature_csv(csv_file)
-    except Exception as exc:
-        print(f"Blad podczas odczytu pliku: {exc}")
-        return 1
+        print(f"Odczytano punktow pomiarowych: {len(measurement.time_axis)}")
 
-    if not measurement.has_rows:
-        print("Brak prawidlowych danych. Zamykanie programu.")
-        return 1
-
-    print(f"Odczytano punktow pomiarowych: {len(measurement.time_axis)}")
     print("Rysowanie wykresu...")
     TemperaturePlotApp(measurement).run()
     return 0

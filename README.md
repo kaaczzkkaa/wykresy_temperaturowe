@@ -6,7 +6,7 @@ Interactive viewer for UT325F CSV temperature measurements. The application load
 
 - Python 3.12 or newer
 - Poetry 1.8 or newer
-- Tk support in the selected Python installation
+- Tk support in the selected Python installation for non-macOS file dialogs
 
 ## Installation
 
@@ -18,11 +18,13 @@ This installs the application package and all declared dependencies from `pyproj
 
 ## Running
 
-Open a file picker:
+Open the chart without loading a file:
 
 ```bash
 poetry run essemtec
 ```
+
+The chart opens first. Use the `Wybierz plik CSV` button in the chart window to load a measurement file.
 
 Load a CSV file directly:
 

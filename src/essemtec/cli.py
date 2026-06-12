@@ -9,7 +9,7 @@ def build_parser() -> ArgumentParser:
         "csv_file",
         nargs="?",
         type=Path,
-        help="Optional CSV file path. If omitted, a file picker is shown.",
+        help="Optional CSV file path. If omitted, the chart opens without loading data.",
     )
     return parser
 
